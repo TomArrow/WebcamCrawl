@@ -20,7 +20,9 @@ namespace WebcamCrawl
         public static Dictionary<string, int> namedTimeouts = new Dictionary<string, int>();
         public static Dictionary<string, int> namedRequestTimeouts = new Dictionary<string, int>();
         public static Dictionary<string, long> lastGrab = new Dictionary<string, long>();
+        public static Dictionary<string, long> lastGrabErrored = new Dictionary<string, long>();
         public static Dictionary<string, string> lastHashes = new Dictionary<string, string>(); // name of webcam => last CRC
+        public static Dictionary<string, List<string>> lastHashesAll = new Dictionary<string, List<string>>(); // name of webcam => last CRC
 
 
         static void Main(string[] args)
@@ -33,6 +35,10 @@ namespace WebcamCrawl
                 string regexp = @"^(.+?),(.+?)=([^,]+)(?:,(\d+))?(?:,(.+))?$"; // updated to include request timeout and file ending
                 foreach(string url in urls)
                 {
+                    if (url[0] == '#') // Commented out
+                    {
+                        continue;
+                    }
                     MatchCollection matches = Regex.Matches(url,regexp,RegexOptions.IgnoreCase);
                     try
                     {
@@ -91,19 +97,26 @@ namespace WebcamCrawl
 
         public static SHA1CryptoServiceProvider hasher = new SHA1CryptoServiceProvider();
 
+        public static long errorRetryTimeoutInSeconds = 10;
+
         static async Task DoCrawl(string name, string url)
         {
+            
+            long timestampSeconds = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds();
+                
             try
             {
 
-                long timestampSeconds = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds();
                 string timestamp = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds().ToString();
 
 
                 long lastTime = 0;
                 lastGrab.TryGetValue(name, out lastTime);
+
+                long lastTimeErrored = 0;
+                lastGrabErrored.TryGetValue(name, out lastTimeErrored);
                 
-                if(lastTime+namedTimeouts[name] > timestampSeconds)
+                if(lastTime+namedTimeouts[name] > timestampSeconds || lastTimeErrored + errorRetryTimeoutInSeconds > timestampSeconds)
                 {
                     return; // Not yet time to do it for this one.
                 }
@@ -129,9 +142,16 @@ namespace WebcamCrawl
                 string oldHash = "";
                 lastHashes.TryGetValue(name, out oldHash);
 
+                bool skippedBcHashDupe = false;
+
                 if (hash == oldHash)
                 {
+                    skippedBcHashDupe = true;
                     Console.WriteLine("skipping '" + name + "', same checksum as last one");
+                }else if (lastHashesAll.ContainsKey(name) && lastHashesAll[name].Contains(hash))
+                {
+                    skippedBcHashDupe = true;
+                    Console.WriteLine("skipping '" + name + "', same checksum as earlier item (buggy webcam)");
                 }
                 else
                 {
@@ -140,13 +160,25 @@ namespace WebcamCrawl
                     Console.WriteLine("Saved '" + filename+"'");
                 }
 
+                if (!lastHashesAll.ContainsKey(name))
+                {
+                    lastHashesAll[name] = new List<string>();
+                }
+
+                if (!skippedBcHashDupe)
+                {
+                    lastHashesAll[name].Add(hash);
+                }
+
                 lastHashes[name] = hash;
                 lastGrab[name] = timestampSeconds;
 
 
             } catch(Exception e)
             {
-                Console.WriteLine(e.Message,url,name);
+                Console.WriteLine(e.Message+","+ name);
+
+                lastGrabErrored[name] = timestampSeconds;
             }
             
 
