@@ -42,6 +42,9 @@ namespace WebcamCrawl
                     MatchCollection matches = Regex.Matches(url,regexp,RegexOptions.IgnoreCase);
                     try
                     {
+                        // TODO Switch to config file with advanced options that will also allow to fine tune the interval at which its recorded
+                        // Especially for longer-interval timelapses like every 1 hour, you want this to be consistent over multiple days and 
+                        // over multiple starts of the program, so it has to be independent of the original start time of the program
                         string name = matches[0].Groups[1].Value;
                         int timeout = int.Parse(matches[0].Groups[2].Value);
                         namedTimeouts.Add(name, timeout);
